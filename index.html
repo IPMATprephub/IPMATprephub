@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<link rel="icon" type="image/webp" href="favicon.webp">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#f7faf6">
@@ -225,7 +226,24 @@ footer .brand-name{font-size:22px}footer p,footer small{color:#b9d0c0;font-size:
  <div class="chat-wrap">
   <div class="chat-top"><div><h2>The New Surname</h2><p>Just a little room of our own.</p></div><span class="chat-status" id="chatStatus">Locked</span></div>
   <div class="chat-gate" id="chatGate"><div class="lock">🔐</div><h3>Enter the room</h3><p>This room is protected. Enter your private room passphrase to continue.</p><div class="gate-form"><input id="roomPassword" type="password" autocomplete="current-password" placeholder="Room passphrase" aria-label="Room passphrase"><button class="btn btn-green" id="unlockRoom">Unlock chat →</button><div class="chat-error" id="chatError" role="status"></div></div></div>
-  <div class="chat-main" id="chatMain"><div class="chat-toolbar"><label>Chatting as <select class="chat-name" id="chatSender"><option value="Amogh">Amogh</option><option value="Tanu">Tanu</option></select></label><button class="btn btn-line" id="lockRoom" type="button">Lock room</button></div><div class="chat-messages" id="chatMessages" aria-live="polite"><div class="chat-empty">Loading your conversation…</div></div><form class="chat-compose" id="chatForm"><input id="chatInput" maxlength="2000" autocomplete="off" placeholder="Write a message…" aria-label="Write a message"><button class="btn btn-green" type="submit">Send ↗</button></form><div class="chat-footnote">Messages sync through your private room. Don't use this room for highly sensitive information.</div></div>
+  <div class="chat-main" id="chatMain"><div class="chat-toolbar">
+  <label>Chatting as
+    <select class="chat-name" id="chatSender">
+      <option value="Amogh">Amogh</option>
+      <option value="Tanu">Tanu</option>
+    </select>
+  </label>
+
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <button class="btn btn-line" id="clearChat" type="button"
+      style="color:#a34a38;border-color:#e8cfc8">
+      Clear Chat
+    </button>
+    <button class="btn btn-line" id="lockRoom" type="button">
+      Lock room
+    </button>
+  </div>
+</div><div class="chat-messages" id="chatMessages" aria-live="polite"><div class="chat-empty">Loading your conversation…</div></div><form class="chat-compose" id="chatForm"><input id="chatInput" maxlength="2000" autocomplete="off" placeholder="Write a message…" aria-label="Write a message"><button class="btn btn-green" type="submit">Send ↗</button></form><div class="chat-footnote">Messages sync through your private room. Don't use this room for highly sensitive information.</div></div>
  </div>
  <p class="chat-hidden-note">This page is not listed in the main navigation.</p>
 </section>
@@ -348,7 +366,16 @@ function subscribeChatMessages(){
   const m=payload.new;const item=document.createElement('article');item.className='chat-msg'+(m.sender===chatEl('chatSender').value?' mine':'');
   const meta=document.createElement('div');meta.className='msg-meta';const who=document.createElement('strong');who.textContent=m.sender;const when=document.createElement('span');when.textContent=new Date(m.created_at).toLocaleString([], {dateStyle:'medium',timeStyle:'short'});meta.append(who,when);
   const body=document.createElement('div');body.className='msg-text';body.textContent=m.content;item.append(meta,body);current.append(item);current.scrollTop=current.scrollHeight;
- }).subscribe();
+  })
+ .on('postgres_changes',{
+   event:'DELETE',
+   schema:'public',
+   table:'private_room_messages'
+ },()=>{
+   chatEl('chatMessages').innerHTML =
+     '<div class="chat-empty">No messages yet. Say hello ✨</div>';
+ })
+ .subscribe();
 }
 async function sendChatMessage(e){
  e.preventDefault();if(!chatUnlocked)return;const input=chatEl('chatInput'),content=input.value.trim();if(!content)return;
@@ -358,10 +385,40 @@ async function sendChatMessage(e){
  finally{input.disabled=false;input.focus();}
 }
 function lockChat(){chatUnlocked=false;if(chatChannel&&chatClient)chatClient.removeChannel(chatChannel);chatChannel=null;chatEl('chatMain').style.display='none';chatEl('chatGate').style.display='block';chatEl('roomPassword').value='';chatError('');chatStatus('Locked');}
+async function clearChatHistory(){
+  if(!chatUnlocked || !chatClient) return;
+
+  const confirmed = window.confirm(
+    'Are you sure you want to permanently delete ALL chat messages for both of you? This cannot be undone.'
+  );
+
+  if(!confirmed) return;
+
+  const button = chatEl('clearChat');
+  button.disabled = true;
+  button.textContent = 'Clearing...';
+
+  try {
+    const { error } = await chatClient.rpc('clear_private_room_messages');
+
+    if(error) throw error;
+
+    chatEl('chatMessages').innerHTML =
+      '<div class="chat-empty">No messages yet. Say hello ✨</div>';
+
+    toast('Chat history cleared for both of you.');
+  } catch(error) {
+    toast('Could not clear chat: ' + (error.message || 'Unknown error'));
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Clear Chat';
+  }
+}
 chatEl('unlockRoom').addEventListener('click',unlockChat);
 chatEl('roomPassword').addEventListener('keydown',e=>{if(e.key==='Enter')unlockChat();});
 chatEl('chatForm').addEventListener('submit',sendChatMessage);
 chatEl('lockRoom').addEventListener('click',lockChat);
+chatEl('clearChat').addEventListener('click',clearChatHistory);
 // Hidden entry: triple-click/tap the brand mark, or press F2.
 let brandTapCount = 0, brandTapTimer = null;
 
